@@ -73,24 +73,10 @@ const ClinicHome = () => {
   };
 
   // Inline search submit (server-side search, keeps existing behavior)
-  const handleSearchSubmit = async (e) => {
+  // Instant search: Filter client-side based on searchTerm
+  const handleSearchSubmit = (e) => {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      const term = searchTerm.trim();
-      if (!term) {
-        await loadClinics();
-      } else {
-        const results = await api.searchClinics(term);
-        setClinics(results);
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Search failed. Please ensure backend is running.");
-    } finally {
-      setLoading(false);
-    }
+    // No-op or just prevent reload, since filtering happens in render
   };
 
   const buildSearchSummary = (f) => {
@@ -108,7 +94,7 @@ const ClinicHome = () => {
   const setFilterValue = (key, value) => {
     setFilters((prev) => {
       const next = { ...prev, [key]: value };
-      setSearchTerm(buildSearchSummary(next));
+      // Do NOT update searchTerm with summary, as it interferes with global filtering
       return next;
     });
   };
@@ -116,7 +102,6 @@ const ClinicHome = () => {
   const clearFilter = (key) => {
     setFilters((prev) => {
       const next = { ...prev, [key]: "" };
-      setSearchTerm(buildSearchSummary(next));
       return next;
     });
   };
@@ -128,22 +113,55 @@ const ClinicHome = () => {
     loadClinics();
   };
 
+  // Flatten clinics: if a clinic has multiple services, create a row for each service.
+  // This allows displaying the specific service phone in the Phone column.
+  const processedClinics = useMemo(() => {
+    const flatList = [];
+    clinics.forEach(clinic => {
+      const servicesArray = clinic.services || [];
+      if (servicesArray.length > 0) {
+        servicesArray.forEach((service, idx) => {
+          let sName = service;
+          let sPhone = clinic.phone; // default fallback
+
+          if (typeof service === 'object') {
+            sName = service.name;
+            if (service.phone) sPhone = service.phone;
+          }
+
+          flatList.push({
+            ...clinic,
+            uniqueKey: `${clinic.clinic_code || clinic.clinicId || 'unknown'}_svc_${idx}`,
+            displayService: sName,
+            displayPhone: sPhone
+          });
+        });
+      } else {
+        // No services, just show clinic row
+        flatList.push({
+          ...clinic,
+          uniqueKey: `${clinic.clinic_code || clinic.clinicId || 'unknown'}_nosvc`,
+          displayService: "-",
+          displayPhone: clinic.phone || "-"
+        });
+      }
+    });
+    return flatList;
+  }, [clinics]);
+
   const visibleClinics = useMemo(() => {
     const f = filters;
+    const term = searchTerm.trim().toLowerCase();
 
-    return clinics.filter((clinic) => {
-      const clinicId =
-        (clinic.clinic_code || clinic.clinicId || "").toString().toLowerCase();
-      const name = (clinic.name || "").toLowerCase();
-      const doctor = (clinic.doctor_name || clinic.doctorName || "").toLowerCase();
-      const address = (clinic.address || "").toLowerCase();
-      const phone = (clinic.phone || "").toLowerCase();
-      const servicesArray = clinic.services || [];
+    return processedClinics.filter((row) => {
+      const clinicId = (row.clinic_code || row.clinicId || "").toString().toLowerCase();
+      const name = (row.name || "").toLowerCase();
+      const doctor = (row.doctor_name || row.doctorName || "").toLowerCase();
+      const address = (row.address || "").toLowerCase();
 
-      const serviceText = servicesArray
-        .map((s) => (typeof s === "object" ? s.name : s))
-        .join(" ")
-        .toLowerCase();
+      // Use the specific phone for this row (likely service phone)
+      const phone = (row.displayPhone || "").toLowerCase();
+      const serviceText = (row.displayService || "").toLowerCase();
 
       if (f.clinicId && !clinicId.includes(f.clinicId.toLowerCase())) return false;
       if (f.clinicName && !name.includes(f.clinicName.toLowerCase())) return false;
@@ -152,9 +170,21 @@ const ClinicHome = () => {
       if (f.phone && !phone.includes(f.phone.toLowerCase())) return false;
       if (f.services && !serviceText.includes(f.services.toLowerCase())) return false;
 
+      if (term) {
+        const matchesGlobal =
+          clinicId.includes(term) ||
+          name.includes(term) ||
+          doctor.includes(term) ||
+          address.includes(term) ||
+          phone.includes(term) ||
+          serviceText.includes(term);
+
+        if (!matchesGlobal) return false;
+      }
+
       return true;
     });
-  }, [clinics, filters]);
+  }, [processedClinics, filters, searchTerm]);
 
   const highlightTerms = useMemo(() => {
     const active = Object.values(filters).filter(Boolean);
@@ -167,7 +197,7 @@ const ClinicHome = () => {
 
   const highlightText = (text) => {
     if (!text || highlightTerms.length === 0) return text;
-    let result = text;
+    let result = text.toString();
     highlightTerms.forEach((term) => {
       if (!term) return;
       const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -224,7 +254,7 @@ const ClinicHome = () => {
       {/* Horizontal filter toolbar */}
       <div className="filter-toolbar">
         <FilterPill
-          label="+ Clinic ID"
+          label={filters.clinicId ? `ID: ${filters.clinicId}` : "+ Clinic ID"}
           placeholder="Filter by clinic ID"
           type="text"
           value={filters.clinicId}
@@ -242,7 +272,7 @@ const ClinicHome = () => {
           }}
         />
         <FilterPill
-          label="+ Doctor Name"
+          label={filters.doctorName ? `Doc: ${filters.doctorName}` : "+ Doctor Name"}
           placeholder="Filter by doctor name"
           type="text"
           value={filters.doctorName}
@@ -260,7 +290,7 @@ const ClinicHome = () => {
           }}
         />
         <FilterPill
-          label="+ Clinic Address"
+          label={filters.address ? `Addr: ${filters.address}` : "+ Clinic Address"}
           placeholder="Filter by address"
           type="text"
           value={filters.address}
@@ -278,7 +308,7 @@ const ClinicHome = () => {
           }}
         />
         <FilterPill
-          label="+ Phone Number"
+          label={filters.phone ? `Ph: ${filters.phone}` : "+ Phone Number"}
           placeholder="Filter by phone"
           type="text"
           value={filters.phone}
@@ -296,7 +326,7 @@ const ClinicHome = () => {
           }}
         />
         <FilterPill
-          label="+ Services"
+          label={filters.services ? `Svc: ${filters.services}` : "+ Services"}
           placeholder="Filter by services"
           type="text"
           value={filters.services}
@@ -340,7 +370,7 @@ const ClinicHome = () => {
                 <tr>
                   <td colSpan="6" className="empty">Loading...</td>
                 </tr>
-              ) : clinics.length === 0 ? (
+              ) : visibleClinics.length === 0 ? (
                 /* If backend returned no rows at all */
                 <tr>
                   <td colSpan="6" className="empty">
@@ -348,35 +378,19 @@ const ClinicHome = () => {
                   </td>
                 </tr>
               ) : (
-                visibleClinics.map((clinic, idx) => (
-                  <tr key={`${clinic.id || idx}`}>
-                    {/* Backend returns snake_case mostly, but Pydantic Schema might be camelCase if configured? 
-                        Let's check ClinicOut. 
-                        Wait, ClinicOut is defined in backend. 
-                        Usually FastAPI uses JSON which preserves field names unless aliased.
-                        ClinicOut matches Pydantic model. 
-                        Let's check backend or just handle snake_case.
-                        The payload in `add_clinic` uses `clinic_service.add_clinic`.
-                        The response model is `ClinicOut`.
-                        Let's assume fields match database model or standard Pydantic.
-                        I'll try snake_case first (clinic_code, doctor_name) and fallback.
-                    */}
-                    <td dangerouslySetInnerHTML={{ __html: highlightText(clinic.clinic_code || clinic.clinicId || "-") }} />
-                    <td dangerouslySetInnerHTML={{ __html: highlightText(clinic.name || "-") }} />
-                    <td dangerouslySetInnerHTML={{ __html: highlightText(clinic.doctor_name || clinic.doctorName || "-") }} />
-                    <td dangerouslySetInnerHTML={{ __html: highlightText(clinic.address || "-") }} />
-                    <td dangerouslySetInnerHTML={{ __html: highlightText(clinic.phone || "-") }} />
+                visibleClinics.map((row) => (
+                  <tr key={row.uniqueKey}>
+                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.clinic_code || row.clinicId || "-") }} />
+                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.name || "-") }} />
+                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.doctor_name || row.doctorName || "-") }} />
+                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.address || "-") }} />
+                    {/* Display the service-specific phone number */}
+                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.displayPhone || "-") }} />
                     <td className="services-cell">
-                      {clinic.services && clinic.services.map((service, serviceIdx) => {
-                        const label = typeof service === 'object' ? service.name : service;
-                        return (
-                          <span
-                            className="tag"
-                            key={serviceIdx}
-                            dangerouslySetInnerHTML={{ __html: highlightText(label) }}
-                          />
-                        );
-                      })}
+                      <span
+                        className="tag"
+                        dangerouslySetInnerHTML={{ __html: highlightText(row.displayService) }}
+                      />
                     </td>
                   </tr>
                 ))

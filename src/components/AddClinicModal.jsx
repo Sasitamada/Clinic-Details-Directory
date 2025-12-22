@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 // Initial form state
-const initialForm = { 
-  clinicId: "", 
-  name: "", 
-  doctorName: "", 
-  address: "", 
-  phone: "", 
-  services: "" 
+const initialForm = {
+  clinicId: "",
+  name: "",
+  doctorName: "",
+  address: "",
+  phone: "",
+  services: [] // Changed to array for dynamic inputs
 };
 
 const AddClinicModal = ({ isOpen, onClose, onSubmit }) => {
@@ -17,15 +17,38 @@ const AddClinicModal = ({ isOpen, onClose, onSubmit }) => {
   // Reset form each time the modal opens
   useEffect(() => {
     if (isOpen) {
-      setForm(initialForm);
+      setForm({ ...initialForm, services: [{ name: "", phone: "" }] }); // Start with one empty service
       setErrors({});
     }
   }, [isOpen]);
 
-  // Handle input changes
+  // Handle main input changes
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // Handle service input changes
+  const handleServiceChange = (index, field, value) => {
+    const newServices = [...form.services];
+    newServices[index][field] = value;
+    setForm((prev) => ({ ...prev, services: newServices }));
+  };
+
+  // Add new service row
+  const addService = () => {
+    setForm((prev) => ({
+      ...prev,
+      services: [...prev.services, { name: "", phone: "" }],
+    }));
+  };
+
+  // Remove service row
+  const removeService = (index) => {
+    setForm((prev) => ({
+      ...prev,
+      services: prev.services.filter((_, i) => i !== index),
+    }));
   };
 
   // Submit handler
@@ -38,10 +61,10 @@ const AddClinicModal = ({ isOpen, onClose, onSubmit }) => {
       doctorName: form.doctorName.trim(),
       address: form.address.trim(),
       phone: form.phone.trim(),
+      // Filter out empty services
       services: form.services
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+        .map(s => ({ name: s.name.trim(), phone: s.phone.trim() }))
+        .filter(s => s.name || s.phone),
     };
 
     // Simple validation
@@ -53,6 +76,12 @@ const AddClinicModal = ({ isOpen, onClose, onSubmit }) => {
     if (!trimmed.phone) nextErrors.phone = "Phone number is required";
     if (trimmed.services.length === 0)
       nextErrors.services = "At least one service is required";
+
+    // Check for incomplete services
+    const incompleteService = trimmed.services.some(s => !s.name || !s.phone);
+    if (incompleteService && trimmed.services.length > 0) {
+      nextErrors.services = "All added services must have both name and phone";
+    }
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
@@ -146,21 +175,39 @@ const AddClinicModal = ({ isOpen, onClose, onSubmit }) => {
             {errors.phone && <span className="error">{errors.phone}</span>}
           </label>
 
-          {/* Services */}
-          <label className="label">
-            Services (comma-separated)
-            <input
-              type="text"
-              name="services"
-              className={`input ${errors.services ? "input-error" : ""}`}
-              placeholder="e.g., Pediatrics, General Checkup, Lab Tests"
-              value={form.services}
-              onChange={handleChange}
-            />
-            {errors.services && (
-              <span className="error">{errors.services}</span>
-            )}
-          </label>
+          {/* Services Dynamic List */}
+          <div className="label">
+            Services
+            {form.services.map((service, index) => (
+              <div key={index} className="service-row" style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                <input
+                  type="text"
+                  placeholder="Service Name"
+                  className={`input ${errors.services ? "input-error" : ""}`}
+                  value={service.name}
+                  onChange={(e) => handleServiceChange(index, "name", e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <input
+                  type="text"
+                  placeholder="Service Phone"
+                  className={`input ${errors.services ? "input-error" : ""}`}
+                  value={service.phone}
+                  onChange={(e) => handleServiceChange(index, "phone", e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                {form.services.length > 1 && (
+                  <button type="button" className="button secondary button-sm" onClick={() => removeService(index)}>
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+            <button type="button" className="button secondary button-sm" onClick={addService} style={{ marginTop: '4px' }}>
+              + Add Service
+            </button>
+            {errors.services && <span className="error" style={{ display: 'block', marginTop: '4px' }}>{errors.services}</span>}
+          </div>
 
           <button type="submit" className="button primary full">
             Submit
