@@ -1,0 +1,13 @@
+version: 0.0
+os: linux
+
+files:
+  - source: /
+    destination: /home/ec2-user/deploy
+    overwrite: true
+
+hooks:
+  AfterInstall:
+    - location: scripts/restart-nginx.sh
+      timeout: 60
+      runas: root
