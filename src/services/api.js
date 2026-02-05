@@ -1,4 +1,4 @@
-const API_PREFIX = '/api/clinics';
+const API_PREFIX = 'http://127.0.0.1:8001/clinics';
 
 /**
  * Helper to handle response
@@ -81,4 +81,13 @@ export const api = {
         const res = await fetch(`${API_PREFIX}/by-services?${queryParams}`);
         return handleResponse(res);
     }
+};
+
+// Delete clinic by id
+export const deleteClinic = async (id) => {
+    const res = await fetch(`${API_PREFIX}/${id}`, {
+        method: 'DELETE',
+        headers: { 'Accept': 'application/json' }
+    });
+    return handleResponse(res);
 };

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../services/api";
+import { api, deleteClinic } from "../services/api";
 import AddClinicModal from "./AddClinicModal";
 import SearchClinicModal from "./SearchClinicModal";
 
@@ -36,6 +36,7 @@ const ClinicHome = () => {
     setLoading(true);
     try {
       const data = await api.fetchClinics();
+      console.log('Backend response:', data);
       setClinics(data);
       setError(null);
     } catch (err) {
@@ -49,13 +50,22 @@ const ClinicHome = () => {
   // Add new clinic
   const handleAddClinic = async (clinicData) => {
     try {
-      // Map frontend fields to backend fields
+      // Map frontend fields to backend fields expected by backend
+      // backend expects: clinic_name, doctor_name, clinic_address, phone_number, services (string)
+      const servicesString = Array.isArray(clinicData.services)
+        ? clinicData.services.map(s => s.name).filter(Boolean).join(', ')
+        : (clinicData.services || '');
+      // Use first service phone as primary phone if available
+      const phoneNumber = Array.isArray(clinicData.services) && clinicData.services.length > 0
+        ? (clinicData.services[0].phone || '')
+        : '';
+
       const payload = {
-        name: clinicData.name,
-        clinic_code: clinicData.clinicId,
+        clinic_name: clinicData.name,
         doctor_name: clinicData.doctorName,
-        address: clinicData.address,
-        services: clinicData.services
+        clinic_address: clinicData.address,
+        phone_number: phoneNumber,
+        services: servicesString,
       };
       await api.addClinic(payload);
       loadClinics(); // Refresh list
@@ -69,6 +79,25 @@ const ClinicHome = () => {
   const handleSearchResults = (results) => {
     setClinics(results);
     setIsSearchModalOpen(false); // Close modal and show results in table
+  };
+
+  // Delete a clinic by id
+  const handleDeleteClinic = async (id) => {
+    if (!id) return;
+    // simple confirm
+    const ok = window.confirm("Are you sure you want to delete this clinic?");
+    if (!ok) return;
+    try {
+      setLoading(true);
+      await deleteClinic(id);
+      // refresh list
+      await loadClinics();
+    } catch (err) {
+      console.error(err);
+      alert(`Failed to delete clinic: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Inline search submit (server-side search, keeps existing behavior)
@@ -116,12 +145,12 @@ const ClinicHome = () => {
   // This allows displaying the specific service phone in the Phone column.
   const processedClinics = useMemo(() => {
     const flatList = [];
-    clinics.forEach(clinic => {
-      const servicesArray = clinic.services || [];
+    clinics.forEach((clinic, clinicIdx) => {
+      const servicesArray = Array.isArray(clinic.services) ? clinic.services : [];
       if (servicesArray.length > 0) {
         servicesArray.forEach((service, idx) => {
           let sName = service;
-          let sPhone = clinic.phone; // default fallback
+          let sPhone = clinic.phone_number; // default fallback
 
           if (typeof service === 'object') {
             sName = service.name;
@@ -130,7 +159,7 @@ const ClinicHome = () => {
 
           flatList.push({
             ...clinic,
-            uniqueKey: `${clinic.clinic_code || clinic.clinicId || 'unknown'}_svc_${idx}`,
+            uniqueKey: `clinic_${clinicIdx}_svc_${idx}`,
             displayService: sName,
             displayPhone: sPhone
           });
@@ -139,9 +168,9 @@ const ClinicHome = () => {
         // No services, just show clinic row
         flatList.push({
           ...clinic,
-          uniqueKey: `${clinic.clinic_code || clinic.clinicId || 'unknown'}_nosvc`,
+          uniqueKey: `clinic_${clinicIdx}_nosvc`,
           displayService: "-",
-          displayPhone: clinic.phone || "-"
+          displayPhone: clinic.phone_number || "-"
         });
       }
     });
@@ -153,10 +182,10 @@ const ClinicHome = () => {
     const term = searchTerm.trim().toLowerCase();
 
     return processedClinics.filter((row) => {
-      const clinicId = (row.clinic_code || row.clinicId || "").toString().toLowerCase();
-      const name = (row.name || "").toLowerCase();
-      const doctor = (row.doctor_name || row.doctorName || "").toLowerCase();
-      const address = (row.address || "").toLowerCase();
+      const clinicId = (row.id || "").toString().toLowerCase();
+      const name = (row.clinic_name || "").toLowerCase();
+      const doctor = (row.doctor_name || "").toLowerCase();
+      const address = (row.clinic_address || "").toLowerCase();
 
       // Use the specific phone for this row (likely service phone)
       const phone = (row.displayPhone || "").toLowerCase();
@@ -361,27 +390,28 @@ const ClinicHome = () => {
                 <th>Clinic Address</th>
                 <th>Phone Number</th>
                 <th>Services</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="empty">Loading...</td>
+                  <td colSpan="7" className="empty">Loading...</td>
                 </tr>
               ) : visibleClinics.length === 0 ? (
                 /* If backend returned no rows at all */
                 <tr>
-                  <td colSpan="6" className="empty">
+                  <td colSpan="7" className="empty">
                     No clinics found.
                   </td>
                 </tr>
               ) : (
                 visibleClinics.map((row) => (
                   <tr key={row.uniqueKey}>
-                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.clinic_code || row.clinicId || "-", filters.clinicId) }} />
-                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.name || "-", filters.clinicName) }} />
-                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.doctor_name || row.doctorName || "-", filters.doctorName) }} />
-                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.address || "-", filters.address) }} />
+                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.id || "-", filters.clinicId) }} />
+                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.clinic_name || "-", filters.clinicName) }} />
+                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.doctor_name || "-", filters.doctorName) }} />
+                    <td dangerouslySetInnerHTML={{ __html: highlightText(row.clinic_address || "-", filters.address) }} />
                     {/* Display the service-specific phone number */}
                     <td dangerouslySetInnerHTML={{ __html: highlightText(row.displayPhone || "-", filters.phone) }} />
                     <td className="services-cell">
@@ -389,6 +419,15 @@ const ClinicHome = () => {
                         className="tag"
                         dangerouslySetInnerHTML={{ __html: highlightText(row.displayService, filters.services) }}
                       />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="button danger button-sm"
+                        onClick={() => handleDeleteClinic(row.id)}
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))
